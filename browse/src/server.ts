@@ -996,6 +996,31 @@ if (process.platform === 'win32') {
 function emergencyCleanup() {
   if (isShuttingDown) return;
   isShuttingDown = true;
+  // Xvfb cleanup MUST happen before state-file deletion. spawnXvfb detaches
+  // the child, so without this, an uncaught exception leaves the Xvfb
+  // running with no PID record — orphan accumulates and eventually
+  // exhausts the :99-:120 display range. Read the state file FIRST,
+  // call cleanupXvfb (validates cmdline + start-time before kill), THEN
+  // delete the state file.
+  try {
+    if (fs.existsSync(config.stateFile)) {
+      const raw = fs.readFileSync(config.stateFile, 'utf-8');
+      const state = JSON.parse(raw);
+      if (state.xvfbPid && state.xvfbStartTime) {
+        // Lazy import — emergencyCleanup may run on platforms where
+        // ./xvfb's Linux-specific helpers fail to load. Best effort.
+        try {
+          const { cleanupXvfb } = require('./xvfb');
+          cleanupXvfb({
+            pid: state.xvfbPid,
+            startTime: state.xvfbStartTime,
+            display: state.xvfbDisplay || ':99',
+          });
+        } catch { /* best effort */ }
+      }
+    }
+  } catch { /* state file unparseable — fall through to lock + state cleanup */ }
+
   // Clean Chromium profile locks
   const profileDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
   for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {

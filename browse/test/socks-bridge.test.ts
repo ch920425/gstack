@@ -283,6 +283,87 @@ describe('startSocksBridge', () => {
     }
   });
 
+  test('handles SOCKS5 handshake split across multiple TCP packets (codex finding)', async () => {
+    // TCP doesn't preserve message boundaries — production networks regularly
+    // fragment small writes. This test simulates that by writing the greeting
+    // and CONNECT request one byte at a time. If the bridge uses once('data')
+    // and assumes each event is a complete frame, this test fails because
+    // it parses the first byte as a frame.
+    const echo = await startEcho();
+    const upstream = await startMockUpstream({ expectedUser: 'u', expectedPass: 'p' });
+    const bridge = await startSocksBridge({
+      upstream: { host: '127.0.0.1', port: upstream.port, userId: 'u', password: 'p' },
+    });
+
+    try {
+      // Build the greeting + CONNECT request manually.
+      const greeting = Buffer.from([0x05, 0x01, 0x00]);
+      const hostBuf = Buffer.from(echo.host);
+      const connect = Buffer.alloc(7 + hostBuf.length);
+      connect[0] = 0x05; connect[1] = 0x01; connect[2] = 0x00; connect[3] = 0x03;
+      connect[4] = hostBuf.length;
+      hostBuf.copy(connect, 5);
+      connect.writeUInt16BE(echo.port, 5 + hostBuf.length);
+
+      const sock = net.createConnection({ host: '127.0.0.1', port: bridge.port });
+      await new Promise<void>((r, rej) => {
+        sock.once('connect', () => r());
+        sock.once('error', rej);
+      });
+
+      // Persistent buffered reader. Using a single long-lived 'data'
+      // listener avoids the bytes-dropped race that happens when you
+      // attach `sock.once('data')`, get one event, and re-attach later —
+      // any data arriving between those two attaches gets dropped because
+      // the socket is in flowing mode without a listener.
+      const inbox: Buffer[] = [];
+      sock.on('data', (chunk) => inbox.push(chunk));
+      const readAtLeast = async (n: number, timeoutMs = 2000): Promise<Buffer> => {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+          const total = inbox.reduce((s, b) => s + b.length, 0);
+          if (total >= n) {
+            const all = Buffer.concat(inbox);
+            inbox.length = 0;
+            if (all.length > n) inbox.push(all.subarray(n));
+            return all.subarray(0, n);
+          }
+          await new Promise((r) => setTimeout(r, 10));
+        }
+        throw new Error(`timeout waiting for ${n} bytes (have ${inbox.reduce((s, b) => s + b.length, 0)})`);
+      };
+
+      // Write greeting one byte at a time.
+      for (let i = 0; i < greeting.length; i++) {
+        sock.write(Buffer.from([greeting[i]]));
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      const greetingReply = await readAtLeast(2);
+      expect(greetingReply[0]).toBe(0x05);
+      expect(greetingReply[1]).toBe(0x00);
+
+      // Write CONNECT one byte at a time.
+      for (let i = 0; i < connect.length; i++) {
+        sock.write(Buffer.from([connect[i]]));
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      const connectReply = await readAtLeast(10);
+      expect(connectReply[0]).toBe(0x05);
+      expect(connectReply[1]).toBe(0x00);
+
+      // Round trip should still work after the fragmented handshake.
+      const payload = Buffer.from('payload-after-split-handshake');
+      sock.write(payload);
+      const received = await readAtLeast(payload.length);
+      expect(received.toString()).toBe(payload.toString());
+      sock.destroy();
+    } finally {
+      await bridge.close();
+      await upstream.close();
+      await echo.close();
+    }
+  });
+
   test('close() tears down listener and in-flight clients', async () => {
     const upstream = await startMockUpstream({ expectedUser: 'u', expectedPass: 'p' });
     const bridge = await startSocksBridge({

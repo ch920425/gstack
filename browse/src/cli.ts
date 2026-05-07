@@ -497,12 +497,25 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
       if (oldState && oldState.pid) {
         await killServer(oldState.pid);
       }
-      const newState = await startServer();
+      // Reapply --proxy / --headed flags from this invocation when restarting
+      // after a crash. Without this, a proxied daemon that dies mid-command
+      // would silently restart in default direct/headless mode and bypass
+      // the SOCKS bridge.
+      const restartEnv: Record<string, string> = {};
+      if (_globalFlags?.proxyUrl) restartEnv.BROWSE_PROXY_URL = _globalFlags.proxyUrl;
+      if (_globalFlags?.headed) restartEnv.BROWSE_HEADED = '1';
+      if (_globalFlags?.configHash) restartEnv.BROWSE_CONFIG_HASH = _globalFlags.configHash;
+      const newState = await startServer(Object.keys(restartEnv).length ? restartEnv : undefined);
       return sendCommand(newState, command, args, retries + 1);
     }
     throw err;
   }
 }
+
+// Module-level reference to the resolved global flags from main(). Used by
+// sendCommand's crash-retry path so a daemon restart after ECONNRESET doesn't
+// silently drop --proxy / --headed.
+let _globalFlags: GlobalFlags | null = null;
 
 // ─── Ngrok Detection ───────────────────────────────────────────
 
@@ -877,6 +890,7 @@ async function main() {
     }
     throw err;
   }
+  _globalFlags = globalFlags;
   const args = globalFlags.args;
 
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
@@ -992,6 +1006,11 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         // it would kill the server ~15s later. Cleanup happens via browser
         // disconnect event or $B disconnect.
         BROWSE_PARENT_PID: '0',
+        // Apply --proxy from this invocation if present. Without this,
+        // `browse --proxy <url> connect` would launch headed Chromium
+        // bypassing the SOCKS bridge entirely.
+        ...(globalFlags.proxyUrl ? { BROWSE_PROXY_URL: globalFlags.proxyUrl } : {}),
+        ...(globalFlags.configHash ? { BROWSE_CONFIG_HASH: globalFlags.configHash } : {}),
       };
       const newState = await startServer(serverEnv);
 
@@ -1064,25 +1083,31 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
       console.log('Not in headed/custom-config mode — nothing to disconnect.');
       process.exit(0);
     }
-    // Try graceful shutdown via server
-    try {
-      const resp = await fetch(`http://127.0.0.1:${existingState.port}/command`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${existingState.token}`,
-        },
-        body: JSON.stringify({
-      domains,
- command: 'disconnect', args: [] }),
-        signal: AbortSignal.timeout(3000),
-      });
-      if (resp.ok) {
-        console.log('Disconnected from real browser.');
-        process.exit(0);
+    // For headed-mode daemons: try graceful shutdown via the server's
+    // /command endpoint. For proxy-only / custom-config daemons (no headed
+    // mode), the server's `disconnect` handler currently only tears down
+    // headed state — it returns 200 "Not in headed mode" without cleaning
+    // up the bridge or Xvfb. So we skip the graceful path for those and
+    // jump straight to force-cleanup, which kills the daemon process and
+    // lets process.on('exit') in server.ts close the bridge + Xvfb.
+    if (existingState.mode === 'headed') {
+      try {
+        const resp = await fetch(`http://127.0.0.1:${existingState.port}/command`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${existingState.token}`,
+          },
+          body: JSON.stringify({ command: 'disconnect', args: [] }),
+          signal: AbortSignal.timeout(3000),
+        });
+        if (resp.ok) {
+          console.log('Disconnected from real browser.');
+          process.exit(0);
+        }
+      } catch {
+        // Server not responding — fall through to force cleanup
       }
-    } catch {
-      // Server not responding — force cleanup
     }
     // Force kill + cleanup
     if (isProcessAlive(existingState.pid)) {

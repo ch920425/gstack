@@ -109,61 +109,113 @@ export async function startSocksBridge(opts: {
   const requestedPort = opts.port ?? 0;
   const inFlight = new Set<net.Socket>();
 
+  // Frame-size predicates for the two SOCKS5 messages we read from the
+  // client. Both return null when we don't yet have enough bytes to know
+  // the frame size, or a positive integer when we do.
+  function greetingSize(buf: Buffer): number | null {
+    if (buf.length < 2) return null;
+    return 2 + buf[1]; // VER NMETHODS + N method bytes
+  }
+  function connectSize(buf: Buffer): number | null {
+    if (buf.length < 5) return null;
+    const atyp = buf[3];
+    if (atyp === ATYP_IPV4) return 10;        // VER CMD RSV ATYP + 4 + 2
+    if (atyp === ATYP_IPV6) return 22;        // VER CMD RSV ATYP + 16 + 2
+    if (atyp === ATYP_DOMAINNAME) return 7 + buf[4]; // VER CMD RSV ATYP LEN + N + 2
+    return null;
+  }
+
+  type State = 'greeting' | 'connect' | 'connecting' | 'piped' | 'closed';
+
   const server = net.createServer((clientSocket) => {
     inFlight.add(clientSocket);
     clientSocket.once('close', () => inFlight.delete(clientSocket));
 
-    // Handshake step 1: client greeting → respond no-auth.
-    clientSocket.once('data', (greeting) => {
-      if (greeting[0] !== SOCKS5_VERSION) {
-        clientSocket.destroy();
-        return;
-      }
-      try { clientSocket.write(Buffer.from([SOCKS5_VERSION, NO_AUTH_METHOD])); }
-      catch { clientSocket.destroy(); return; }
+    let state: State = 'greeting';
+    let buf = Buffer.alloc(0);
+    let upstreamSocket: net.Socket | null = null;
 
-      // Handshake step 2: client CONNECT request.
-      clientSocket.once('data', async (reqData) => {
+    const killBoth = (reason?: string) => {
+      void reason;
+      state = 'closed';
+      try { clientSocket.destroy(); } catch { /* already gone */ }
+      if (upstreamSocket) {
+        try { upstreamSocket.destroy(); } catch { /* already gone */ }
+      }
+    };
+
+    const handshakeTimeout = setTimeout(() => {
+      if (state === 'greeting' || state === 'connect' || state === 'connecting') {
+        killBoth('handshake timeout');
+      }
+    }, 30000);
+    clientSocket.once('close', () => clearTimeout(handshakeTimeout));
+
+    const onData = (chunk: Buffer) => {
+      if (state === 'closed' || state === 'piped') return;
+      buf = buf.length === 0 ? chunk : Buffer.concat([buf, chunk]);
+
+      if (state === 'greeting') {
+        const sz = greetingSize(buf);
+        if (sz == null || buf.length < sz) return;
+        const greeting = buf.subarray(0, sz);
+        buf = buf.subarray(sz);
+        if (greeting[0] !== SOCKS5_VERSION) { killBoth('bad version'); return; }
+        try { clientSocket.write(Buffer.from([SOCKS5_VERSION, NO_AUTH_METHOD])); }
+        catch { killBoth('write greeting reply failed'); return; }
+        state = 'connect';
+        // Fall through — buf may already contain CONNECT bytes (coalesced).
+      }
+
+      if (state === 'connect') {
+        const sz = connectSize(buf);
+        if (sz == null || buf.length < sz) return;
+        const reqData = buf.subarray(0, sz);
+        const remainder = buf.subarray(sz);
         const dest = parseConnectRequest(reqData);
         if (!dest) {
           writeReply(clientSocket, REPLY_GENERAL_FAILURE);
-          clientSocket.destroy();
+          killBoth('bad connect request');
           return;
         }
-
-        let upstreamSocket: net.Socket;
-        try {
-          const result = await SocksClient.createConnection({
-            proxy: upstreamProxy,
-            command: 'connect',
-            destination: { host: dest.host, port: dest.port },
-            timeout: UPSTREAM_CONNECT_TIMEOUT_MS,
-          });
+        state = 'connecting';
+        // Pause client reads so any post-handshake bytes don't get dropped.
+        // We replay `remainder` after upstream is established.
+        clientSocket.pause();
+        SocksClient.createConnection({
+          proxy: upstreamProxy,
+          command: 'connect',
+          destination: { host: dest.host, port: dest.port },
+          timeout: UPSTREAM_CONNECT_TIMEOUT_MS,
+        }).then((result) => {
+          if (state === 'closed') {
+            try { result.socket.destroy(); } catch { /* shutdown */ }
+            return;
+          }
           upstreamSocket = result.socket;
-        } catch {
+          writeReply(clientSocket, REPLY_SUCCESS);
+          // Replay any pre-buffered post-handshake bytes BEFORE we pipe.
+          if (remainder.length > 0) {
+            try { upstreamSocket.write(remainder); } catch { killBoth('replay write failed'); return; }
+          }
+          // Wire the rest of the connection through the pipe.
+          upstreamSocket.on('error', () => killBoth('upstream error'));
+          upstreamSocket.on('close', () => { try { clientSocket.destroy(); } catch { /* already gone */ } });
+          clientSocket.removeListener('data', onData);
+          clientSocket.pipe(upstreamSocket);
+          upstreamSocket.pipe(clientSocket);
+          clientSocket.resume();
+          state = 'piped';
+        }).catch(() => {
           writeReply(clientSocket, REPLY_HOST_UNREACHABLE);
-          clientSocket.destroy();
-          return;
-        }
+          killBoth('upstream connect failed');
+        });
+        return;
+      }
+    };
 
-        writeReply(clientSocket, REPLY_SUCCESS);
-
-        // Pipe bidirectionally. On any error, kill BOTH sockets (no retries).
-        const killBoth = () => {
-          try { clientSocket.destroy(); } catch { /* already gone */ }
-          try { upstreamSocket.destroy(); } catch { /* already gone */ }
-        };
-        clientSocket.on('error', killBoth);
-        upstreamSocket.on('error', killBoth);
-        clientSocket.on('close', () => { try { upstreamSocket.destroy(); } catch { /* already gone */ } });
-        upstreamSocket.on('close', () => { try { clientSocket.destroy(); } catch { /* already gone */ } });
-
-        clientSocket.pipe(upstreamSocket);
-        upstreamSocket.pipe(clientSocket);
-      });
-    });
-
-    clientSocket.on('error', () => clientSocket.destroy());
+    clientSocket.on('data', onData);
+    clientSocket.on('error', () => killBoth('client error'));
   });
 
   await new Promise<void>((resolve, reject) => {

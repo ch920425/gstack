@@ -32,10 +32,12 @@ You are setting up gbrain (https://github.com/garrytan/gbrain), a persistent
 knowledge base, on the user's local Mac so that this coding agent (typically
 Claude Code) can call it as both a CLI and an MCP tool.
 
-**Scope honesty:** This skill's MCP registration step (5a) uses
-`claude mcp add` and targets Claude Code specifically. Other local hosts
-(Cursor, Codex CLI, etc.) will still get the gbrain CLI on PATH — they can
-register `gbrain serve` in their own MCP config manually after setup.
+**Scope honesty:** This skill's primary MCP registration step (5a) uses
+`claude mcp add` for Claude Code. Step 5b also verifies the default local
+OpenAI Codex CLI and OpenCode MCP config files when they exist on this
+machine, using the same local stdio command (`gbrain serve`). Other hosts
+(Cursor, Windsurf, etc.) still get the gbrain CLI on PATH and can register
+the same command manually after setup.
 
 **Audience:** local-Mac users. openclaw/hermes agents typically run in cloud
 docker containers with their own gbrain; "sharing" a brain between them and
@@ -414,6 +416,70 @@ your agent's MCP config manually." Continue to step 6.
 pick up the new MCP tools until restart. Tell them: "Restart any open
 Claude Code sessions to see `mcp__gbrain__*` tools — they're loaded at
 session start, not mid-session."
+
+---
+
+## Step 5b: Verify Codex CLI and OpenCode default MCP config
+
+This is best-effort and local-host-only. Do not put database URLs or tokens in
+these files; credentials stay in `~/.gbrain/config.json`.
+
+For local stdio GBrain, the command is always:
+
+```json
+{ "command": "<absolute path to gbrain>", "args": ["serve"] }
+```
+
+Use environment overrides only for connection behavior, not secrets:
+
+```json
+{
+  "GBRAIN_DISABLE_DIRECT_POOL": "1",
+  "GBRAIN_PREPARE": "false"
+}
+```
+
+### Codex CLI (`~/.codex/config.toml`)
+
+If `~/.codex/config.toml` exists, verify it has:
+
+```toml
+[mcp_servers.gbrain]
+command = "/absolute/path/to/gbrain"
+args = ["serve"]
+startup_timeout_sec = 15.0
+
+[mcp_servers.gbrain.env]
+GBRAIN_DISABLE_DIRECT_POOL = "1"
+GBRAIN_PREPARE = "false"
+```
+
+If the block is missing, add it. If it exists with a stale `command`, update
+only the gbrain block. Do not rewrite unrelated Codex MCP servers.
+
+### OpenCode (`~/.config/opencode/opencode.json`)
+
+If `~/.config/opencode/opencode.json` exists, verify it has:
+
+```json
+{
+  "mcp": {
+    "gbrain": {
+      "type": "local",
+      "command": ["/absolute/path/to/gbrain", "serve"],
+      "environment": {
+        "GBRAIN_DISABLE_DIRECT_POOL": "1",
+        "GBRAIN_PREPARE": "false"
+      },
+      "enabled": true
+    }
+  }
+}
+```
+
+Preserve every existing key in `opencode.json`; only upsert `mcp.gbrain`.
+If either host is currently running, tell the user to restart that host before
+expecting the new tools to appear.
 
 ---
 

@@ -14,7 +14,7 @@ This is the full monty: every scenario, every flag, every helper bin, every trou
 /setup-gbrain
 ```
 
-That's it. The skill detects your current state, asks three questions at most, and walks you through install, init, MCP registration for Claude Code, and per-repo trust policy. On a clean Mac with nothing installed it finishes in under five minutes. On a Mac where something's already set up it takes seconds (it detects the existing state and skips done work).
+That's it. The skill detects your current state, asks three questions at most, and walks you through install, init, MCP registration for Claude Code plus default local Codex/OpenCode configs when present, and per-repo trust policy. On a clean Mac with nothing installed it finishes in under five minutes. On a Mac where something's already set up it takes seconds (it detects the existing state and skips done work).
 
 ## The three paths
 
@@ -52,7 +52,7 @@ Best for: try-it-first, no account, no cloud, no sharing. Or a dedicated "this M
 
 This is the best first choice if you just want to see what gbrain feels like before committing to cloud. You can always migrate later with `/setup-gbrain --switch`.
 
-## MCP registration for Claude Code
+## MCP registration for local agents
 
 By default the skill asks "Give Claude Code a typed tool surface for gbrain?" If you say yes, it runs:
 
@@ -64,7 +64,37 @@ That registers gbrain's stdio MCP server with Claude Code. Now `gbrain search`, 
 
 **If `claude` is not on PATH**, the skill skips MCP registration gracefully with a manual-register hint. The CLI resolver still works from any skill that shells out to `gbrain` — MCP is an upgrade, not a prerequisite.
 
-**Other local agents** (Cursor, Codex CLI, etc.) need their own MCP registration. The skill is Claude-Code-targeted for v1; other hosts can register `gbrain serve` manually in their own MCP config.
+**Codex CLI and OpenCode:** when their default config files exist, the setup
+flow verifies/upserts a local stdio `gbrain` MCP entry using an absolute
+`gbrain` binary path and `serve`. It preserves unrelated MCP servers and does
+not put database URLs or tokens in those config files; credentials stay in
+`~/.gbrain/config.json`.
+
+Codex shape:
+
+```toml
+[mcp_servers.gbrain]
+command = "/Users/example/.bun/bin/gbrain"
+args = ["serve"]
+startup_timeout_sec = 15.0
+```
+
+OpenCode shape:
+
+```json
+{
+  "mcp": {
+    "gbrain": {
+      "type": "local",
+      "command": ["/Users/example/.bun/bin/gbrain", "serve"],
+      "enabled": true
+    }
+  }
+}
+```
+
+Other local agents (Cursor, Windsurf, etc.) can register the same stdio command
+manually in their own MCP config.
 
 ## Per-remote trust policy (the triad)
 
@@ -126,6 +156,14 @@ Secret-shaped content (AWS keys, GitHub tokens, PEM blocks, JWTs, bearer tokens)
 Full guide: [docs/gbrain-sync.md](docs/gbrain-sync.md). Error index: [docs/gbrain-sync-errors.md](docs/gbrain-sync-errors.md).
 
 `/setup-gbrain` offers to wire this up for you at the end of initial setup — it's one more AskUserQuestion, and it integrates with the same private-repo infrastructure.
+
+## Host markdown knowledge bases
+
+`/sync-gbrain` indexes code repos with GBrain's native code surfaces. It is not
+the right path for an Obsidian vault, wiki export, or generated knowledge base.
+For those, build a disposable markdown mirror and preserve GBrain's native slug,
+`source_id`, timeline, and graph materialization grammar. Then import/extract
+that mirror with the host repo's own workflow or with native `gbrain extract all`.
 
 ## Cleanup orphan projects
 

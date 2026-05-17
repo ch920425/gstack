@@ -7,6 +7,22 @@ import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
+function readMarkdownWithRootIncludes(filePath: string, seen = new Set<string>()): string {
+  const resolved = path.resolve(filePath);
+  if (seen.has(resolved)) {
+    throw new Error(`Circular markdown include detected: ${resolved}`);
+  }
+  seen.add(resolved);
+  const content = fs.readFileSync(resolved, 'utf-8');
+  return content.replace(/^@([A-Za-z0-9_.\/-]+\.md)$/gm, (_match, includePath: string) => {
+    const includeResolved = path.resolve(path.dirname(resolved), includePath);
+    if (!includeResolved.startsWith(`${ROOT}${path.sep}`)) {
+      throw new Error(`Markdown include escapes repo root: ${includePath}`);
+    }
+    return readMarkdownWithRootIncludes(includeResolved, seen);
+  });
+}
+
 describe('SKILL.md command validation', () => {
   test('all $B commands in SKILL.md are valid browse commands', () => {
     const result = validateSkill(path.join(ROOT, 'SKILL.md'));
@@ -1561,7 +1577,7 @@ describe('Doc inventory cross-check', () => {
   }
 
   test('every skill is documented in AGENTS.md', () => {
-    const agents = fs.readFileSync(path.join(ROOT, 'AGENTS.md'), 'utf-8');
+    const agents = readMarkdownWithRootIncludes(path.join(ROOT, 'AGENTS.md'));
     const missing: string[] = [];
     for (const skill of discoverSkillDirs()) {
       // Match `/skill-name` as a token boundary.

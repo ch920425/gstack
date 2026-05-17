@@ -225,6 +225,24 @@ Full guide: [docs/gbrain-sync.md](docs/gbrain-sync.md). Error index: [docs/gbrai
 
 `/setup-gbrain` offers to wire this up for you at the end of initial setup — it's one more AskUserQuestion, and it integrates with the same private-repo infrastructure.
 
+### Hermes, Supermemory, and artifact-only sync
+
+On the Hermes/Codex host, Supermemory owns broad durable conversation/profile
+memory. GStack should feed GBrain with repo artifacts, plans, reports, and
+learning artifacts, not duplicate the same conversational memories that Hermes
+already writes to Supermemory. Use:
+
+```bash
+~/.hermes/skills/gstack/bin/gstack-config set artifacts_sync_mode artifacts-only
+~/.hermes/skills/gstack/bin/gstack-config set artifacts_sync_mode_prompted true
+```
+
+Hermes and Codex should both have `gbrain` MCP access. That redundancy is
+intentional for search/update workflows. Supermemory write access is different:
+the Hermes parent should own normal writes, while child Codex tasks use
+Supermemory mostly for recall unless the user explicitly asks for a child memory
+write.
+
 ## Host markdown knowledge bases
 
 `/sync-gbrain` indexes code repos with GBrain's native code surfaces. It is not
@@ -391,6 +409,12 @@ You edited `~/.gstack/gbrain-repo-policy.json` by hand with legacy `allow` value
 ### `gbrain doctor` says "warnings"
 
 `/health` treats that as yellow, not red. Check `gbrain doctor --json | jq .checks` to see which sub-checks are warning. Typical causes: resolver MECE overlap (skill names clashing) or DB connection not yet configured.
+
+For recurring knowledge-health warnings, prefer fixing the underlying workflow:
+
+- `whoknows_health`: set a stable benchmark path with `gbrain config set whoknows.eval_fixture <fixture.jsonl>` or `GBRAIN_WHOKNOWS_EVAL_FIXTURE=<fixture.jsonl>`. Fixture rows should be expertise-routing questions whose expected slugs are `person`/`company` pages; `whoknows` does not rank notes or project pages.
+- `effective_date_health`: run `gbrain reindex-frontmatter --yes --json` after bulk imports, syncs, or frontmatter date edits.
+- `integrity`: run `gbrain integrity check --json`; bare-tweet repair is only actionable when the page has a frontmatter X handle or inline `@handle`. External links without bare tweets are informational.
 
 ### `/sync-gbrain` reports `OK` but `gbrain search` returns nothing semantic
 

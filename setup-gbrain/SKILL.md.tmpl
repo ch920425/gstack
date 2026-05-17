@@ -522,7 +522,11 @@ GBRAIN_BIN=$(command -v gbrain)
 [ -z "$GBRAIN_BIN" ] && GBRAIN_BIN="$HOME/.bun/bin/gbrain"
 claude mcp remove gbrain -s user 2>/dev/null || true
 claude mcp remove gbrain 2>/dev/null || true
-claude mcp add --scope user gbrain -- "$GBRAIN_BIN" serve
+claude mcp add --scope user \
+  -e GBRAIN_SKIP_AUTO_MIGRATE_ON_CONNECT=1 \
+  -e GBRAIN_DISABLE_DIRECT_POOL=1 \
+  -e GBRAIN_PREPARE=false \
+  gbrain -- "$GBRAIN_BIN" serve
 claude mcp list | grep gbrain  # verify: should show "✓ Connected"
 ```
 
@@ -550,14 +554,19 @@ For local stdio GBrain, the command is always:
 { "command": "<absolute path to gbrain>", "args": ["serve"] }
 ```
 
-Use environment overrides only for connection behavior, not secrets:
+Use environment overrides only for connection and migration behavior, not secrets:
 
 ```json
 {
+  "GBRAIN_SKIP_AUTO_MIGRATE_ON_CONNECT": "1",
   "GBRAIN_DISABLE_DIRECT_POOL": "1",
   "GBRAIN_PREPARE": "false"
 }
 ```
+
+For Supabase/Postgres brains, this env var keeps MCP startup read-only with
+respect to schema changes. Run production migrations explicitly with
+`gbrain init --migrate-only` after a verified database backup.
 
 ### Codex CLI (`$CODEX_HOME/config.toml`)
 
@@ -571,6 +580,7 @@ args = ["serve"]
 startup_timeout_sec = 15.0
 
 [mcp_servers.gbrain.env]
+GBRAIN_SKIP_AUTO_MIGRATE_ON_CONNECT = "1"
 GBRAIN_DISABLE_DIRECT_POOL = "1"
 GBRAIN_PREPARE = "false"
 ```
@@ -589,6 +599,7 @@ If `~/.config/opencode/opencode.json` exists, verify it has:
       "type": "local",
       "command": ["/absolute/path/to/gbrain", "serve"],
       "environment": {
+        "GBRAIN_SKIP_AUTO_MIGRATE_ON_CONNECT": "1",
         "GBRAIN_DISABLE_DIRECT_POOL": "1",
         "GBRAIN_PREPARE": "false"
       },

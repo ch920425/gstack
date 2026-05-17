@@ -76,10 +76,14 @@ The two engines are independent. Wiping the local PGLite doesn't touch the remot
 
 ## MCP registration for local agents
 
-By default the skill asks "Give Claude Code a typed tool surface for gbrain?" If you say yes, it runs:
+By default the skill asks "Give Claude Code a typed tool surface for gbrain?" If you say yes, it registers the local stdio server with the production-safe startup env:
 
 ```bash
-claude mcp add gbrain -- gbrain serve
+claude mcp add --scope user \
+  -e GBRAIN_SKIP_AUTO_MIGRATE_ON_CONNECT=1 \
+  -e GBRAIN_DISABLE_DIRECT_POOL=1 \
+  -e GBRAIN_PREPARE=false \
+  gbrain -- gbrain serve
 ```
 
 That registers gbrain's stdio MCP server with Claude Code. Now `gbrain search`, `gbrain put_page`, `gbrain get_page`, etc. show up as first-class tools in every session, not bash shell-outs.
@@ -99,6 +103,11 @@ Codex shape:
 command = "/Users/example/.bun/bin/gbrain"
 args = ["serve"]
 startup_timeout_sec = 15.0
+
+[mcp_servers.gbrain.env]
+GBRAIN_SKIP_AUTO_MIGRATE_ON_CONNECT = "1"
+GBRAIN_DISABLE_DIRECT_POOL = "1"
+GBRAIN_PREPARE = "false"
 ```
 
 OpenCode shape:
@@ -109,6 +118,11 @@ OpenCode shape:
     "gbrain": {
       "type": "local",
       "command": ["/Users/example/.bun/bin/gbrain", "serve"],
+      "environment": {
+        "GBRAIN_SKIP_AUTO_MIGRATE_ON_CONNECT": "1",
+        "GBRAIN_DISABLE_DIRECT_POOL": "1",
+        "GBRAIN_PREPARE": "false"
+      },
       "enabled": true
     }
   }
@@ -116,7 +130,10 @@ OpenCode shape:
 ```
 
 Other local agents (Cursor, Windsurf, etc.) can register the same stdio command
-manually in their own MCP config.
+manually in their own MCP config. If the configured brain is Supabase/Postgres,
+keep `GBRAIN_SKIP_AUTO_MIGRATE_ON_CONNECT=1` in the MCP environment and apply
+schema migrations explicitly with `gbrain init --migrate-only` after a verified
+database backup.
 
 ## Per-remote trust policy (the triad)
 

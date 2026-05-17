@@ -7,15 +7,14 @@
  *   gstack-model-benchmark <skill-or-prompt-file> [options]
  *
  * Options:
- *   --models claude,gpt,gemini   Comma-separated provider list (default: claude)
+ *   --models claude,gpt,gemini   Comma-separated provider list (default: gpt)
  *   --prompt "<text>"            Inline prompt instead of a file
  *   --workdir <path>             Working dir passed to each CLI (default: cwd)
  *   --timeout-ms <n>             Per-provider timeout (default: 300000)
  *   --output table|json|markdown Output format (default: table)
  *   --skip-unavailable           Skip providers that fail available() check
  *                                (default: include them with unavailable marker)
- *   --judge                      Run Anthropic SDK judge on outputs for quality score
- *                                (requires ANTHROPIC_API_KEY; adds ~$0.05 per call)
+ *   --judge                      Run Codex/GPT-5.5 judge on outputs for quality score
  *   --dry-run                    Validate flags + resolve auth, don't invoke providers
  *
  * Examples:
@@ -53,7 +52,7 @@ function flag(name: string): boolean {
 }
 
 function parseProviders(s: string | undefined): Array<'claude' | 'gpt' | 'gemini'> {
-  if (!s) return ['claude'];
+  if (!s) return ['gpt'];
   const seen = new Set<'claude' | 'gpt' | 'gemini'>();
   for (const p of s.split(',').map(x => x.trim()).filter(Boolean)) {
     if (p === 'claude' || p === 'gpt' || p === 'gemini') seen.add(p);
@@ -61,7 +60,7 @@ function parseProviders(s: string | undefined): Array<'claude' | 'gpt' | 'gemini
       console.error(`WARN: unknown provider '${p}' — skipping. Valid: claude, gpt, gemini.`);
     }
   }
-  return seen.size ? Array.from(seen) : ['claude'];
+  return seen.size ? Array.from(seen) : ['gpt'];
 }
 
 function resolvePrompt(positional: string | undefined): string {
@@ -138,7 +137,7 @@ async function dryRunReport(opts: {
   lines.push(`  workdir:    ${opts.workdir}`);
   lines.push(`  timeout_ms: ${opts.timeoutMs}`);
   lines.push(`  output:     ${opts.output}`);
-  lines.push(`  judge:      ${opts.doJudge ? 'on (Anthropic SDK)' : 'off'}`);
+  lines.push(`  judge:      ${opts.doJudge ? 'on (Codex gpt-5.5)' : 'off'}`);
   lines.push('');
   lines.push('Adapter availability:');
   let authFailures = 0;

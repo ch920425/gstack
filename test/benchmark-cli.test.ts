@@ -4,7 +4,7 @@
  * Covers CLI wiring that unit tests against benchmark-runner.ts can't see:
  *   - --dry-run auth/provider-list resolution
  *   - unknown provider WARN path
- *   - provider default (claude) when --models omitted
+ *   - provider default (gpt) when --models omitted
  *   - prompt resolution (inline --prompt vs positional file path)
  *   - output format flag wiring via --dry-run (avoids real CLI invocation)
  *
@@ -48,7 +48,7 @@ describe('gstack-model-benchmark --dry-run', () => {
   test('reports default provider when --models omitted', () => {
     const r = run(['--prompt', 'hi', '--dry-run']);
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain('providers:  claude');
+    expect(r.stdout).toContain('providers:  gpt');
   });
 
   test('unknown provider in --models emits WARN and is dropped', () => {
@@ -60,10 +60,10 @@ describe('gstack-model-benchmark --dry-run', () => {
     expect(r.stdout).not.toContain('gpt-42-fake');
   });
 
-  test('empty --models list falls back to claude default', () => {
+  test('empty --models list falls back to gpt default', () => {
     const r = run(['--prompt', 'hi', '--models', '', '--dry-run']);
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain('providers:  claude');
+    expect(r.stdout).toContain('providers:  gpt');
   });
 
   test('--timeout-ms and --workdir flags flow through to dry-run report', () => {

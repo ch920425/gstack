@@ -40,6 +40,7 @@ test('estimateCostUsd applies cached input discount alongside uncached input', (
 test('PRICING table covers the key model families', () => {
   expect(PRICING['claude-opus-4-7']).toBeDefined();
   expect(PRICING['claude-sonnet-4-6']).toBeDefined();
+  expect(PRICING['gpt-5.5']).toBeDefined();
   expect(PRICING['gpt-5.4']).toBeDefined();
   expect(PRICING['gemini-2.5-pro']).toBeDefined();
 });

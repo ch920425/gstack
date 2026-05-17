@@ -53,7 +53,7 @@ export class GptAdapter implements ProviderAdapter {
         tokens: parsed.tokens,
         durationMs: Date.now() - start,
         toolCalls: parsed.toolCalls,
-        modelUsed: parsed.modelUsed || opts.model || 'gpt-5.4',
+        modelUsed: parsed.modelUsed || opts.model || 'gpt-5.5',
       };
     } catch (err: unknown) {
       const durationMs = Date.now() - start;
@@ -73,7 +73,7 @@ export class GptAdapter implements ProviderAdapter {
   }
 
   estimateCost(tokens: { input: number; output: number; cached?: number }, model?: string): number {
-    return estimateCostUsd(tokens, model ?? 'gpt-5.4');
+    return estimateCostUsd(tokens, model ?? 'gpt-5.5');
   }
 
   /**
@@ -120,7 +120,7 @@ export class GptAdapter implements ProviderAdapter {
       tokens: { input: 0, output: 0 },
       durationMs,
       toolCalls: 0,
-      modelUsed: model ?? 'gpt-5.4',
+      modelUsed: model ?? 'gpt-5.5',
       error,
     };
   }

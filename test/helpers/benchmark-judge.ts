@@ -1,39 +1,37 @@
 /**
- * Benchmark quality judge — wraps llm-judge.ts for multi-provider scoring.
+ * Benchmark quality judge — uses Codex/GPT for multi-provider scoring.
  *
- * The judge is always Anthropic SDK (claude-sonnet-4-6) for stability. It sees
+ * The judge is GPT-5.5 via the Codex CLI. It sees
  * the prompt + N provider outputs and scores each on: correctness, completeness,
  * code quality, edge case handling. 0-10 per dimension; overall = average.
  *
- * Judge adds ~$0.05 per benchmark run. Gated by --judge CLI flag.
+ * Gated by --judge CLI flag.
  */
 
 import type { BenchmarkReport, BenchmarkEntry } from './benchmark-runner';
+import { GptAdapter } from './providers/gpt';
 
 export async function judgeEntries(report: BenchmarkReport): Promise<void> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error('ANTHROPIC_API_KEY not set — judge requires Anthropic access.');
-  }
-  const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
-    throw new Error('@anthropic-ai/sdk not installed — run `bun add @anthropic-ai/sdk` if you want the judge.');
-  });
-  const client = new (Anthropic as unknown as new (opts: { apiKey: string }) => {
-    messages: { create: (params: Record<string, unknown>) => Promise<{ content: Array<{ type: string; text: string }> }> };
-  })({ apiKey: process.env.ANTHROPIC_API_KEY! });
-
   const successful = report.entries.filter(e => e.available && e.result && !e.result.error);
   if (successful.length === 0) return;
 
   const judgePrompt = buildJudgePrompt(report.prompt, successful);
-  const msg = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 2048,
-    messages: [{ role: 'user', content: judgePrompt }],
+  const adapter = new GptAdapter();
+  const check = await adapter.available();
+  if (!check.ok) {
+    throw new Error(`Codex judge unavailable: ${check.reason}`);
+  }
+  const result = await adapter.run({
+    prompt: judgePrompt,
+    workdir: report.workdir,
+    timeoutMs: 180_000,
+    model: 'gpt-5.5',
   });
-  const textBlock = msg.content.find(c => c.type === 'text');
-  if (!textBlock) return;
+  if (result.error) {
+    throw new Error(`Codex judge failed: ${result.error.code}: ${result.error.reason}`);
+  }
 
-  const scores = parseScores(textBlock.text, successful.length);
+  const scores = parseScores(result.output, successful.length);
   for (let i = 0; i < successful.length; i++) {
     const s = scores[i];
     if (!s) continue;

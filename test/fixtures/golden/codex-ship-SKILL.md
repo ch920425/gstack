@@ -88,7 +88,7 @@ if [ -d ".agents/skills/gstack" ] && [ ! -L ".agents/skills/gstack" ]; then
   fi
 fi
 echo "VENDORED_GSTACK: $_VENDORED"
-echo "MODEL_OVERLAY: claude"
+echo "MODEL_OVERLAY: gpt-5.5"
 _CHECKPOINT_MODE=$($GSTACK_BIN/gstack-config get checkpoint_mode 2>/dev/null || echo "explicit")
 _CHECKPOINT_PUSH=$($GSTACK_BIN/gstack-config get checkpoint_push 2>/dev/null || echo "false")
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"

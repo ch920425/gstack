@@ -45,12 +45,13 @@ const HOST_ARG_VAL: HostArg = (() => {
 let HOST: Host = HOST_ARG_VAL === 'all' ? 'claude' : HOST_ARG_VAL;
 
 // ─── Model Overlay Selection ────────────────────────────────
-// --model is explicit. We do NOT auto-detect from host (host ≠ model).
-// Default is 'claude'. Missing overlay file → empty string (graceful).
+// --model is explicit. Host-specific defaults are only used when omitted.
+// Codex defaults to gpt-5.5; non-Codex generation keeps historical Claude.
+// Missing overlay file → empty string (graceful).
 import { ALL_MODEL_NAMES, resolveModel, type Model } from './models';
 const MODEL_ARG = process.argv.find(a => a.startsWith('--model'));
 const MODEL_ARG_VAL: Model = (() => {
-  if (!MODEL_ARG) return 'claude';
+  if (!MODEL_ARG) return HOST_ARG_VAL === 'codex' ? 'gpt-5.5' : 'claude';
   const val = MODEL_ARG.includes('=') ? MODEL_ARG.split('=')[1] : process.argv[process.argv.indexOf(MODEL_ARG) + 1];
   const resolved = resolveModel(val);
   if (!resolved) {

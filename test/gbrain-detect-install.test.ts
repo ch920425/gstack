@@ -32,22 +32,29 @@ let tmpHomeReal: string;
 
 type RunOpts = { env?: Record<string, string>; cwd?: string };
 function run(bin: string, args: string[], opts: RunOpts = {}) {
+  const runtimeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'bun-runtime-bin-'));
+  fs.symlinkSync(process.execPath, path.join(runtimeBin, 'bun'));
   const env = {
     ...process.env,
     GSTACK_HOME: tmpHome,
     HOME: tmpHomeReal,
     ...(opts.env || {}),
   };
-  const res = spawnSync(bin, args, {
-    env,
-    cwd: opts.cwd,
-    encoding: 'utf-8',
-  });
-  return {
-    stdout: (res.stdout || '').trim(),
-    stderr: (res.stderr || '').trim(),
-    status: res.status ?? -1,
-  };
+  env.PATH = `${runtimeBin}:${env.PATH || ''}`;
+  try {
+    const res = spawnSync(bin, args, {
+      env,
+      cwd: opts.cwd,
+      encoding: 'utf-8',
+    });
+    return {
+      stdout: (res.stdout || '').trim(),
+      stderr: (res.stderr || '').trim(),
+      status: res.status ?? -1,
+    };
+  } finally {
+    fs.rmSync(runtimeBin, { recursive: true, force: true });
+  }
 }
 
 beforeEach(() => {

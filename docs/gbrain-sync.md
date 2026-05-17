@@ -6,6 +6,12 @@ switch laptops. **GBrain sync** pushes a curated subset to a private git
 repo so your memory follows you across machines and becomes indexable by
 GBrain.
 
+This feature is for gstack's own memory artifacts. It is separate from syncing
+a host markdown knowledge base such as an Obsidian vault or wiki export. For
+those repos, use a host-specific mirror/materialization workflow that preserves
+GBrain's native slug, `source_id`, timeline, link, and timeline-entry grammar;
+do not point the gstack code-source sync at the vault root.
+
 ## What you get
 
 - Work on machine A, pick up seamlessly on machine B.

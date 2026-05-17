@@ -761,6 +761,14 @@ It does NOT use `gbrain import` (that path is for markdown directories).
 It does NOT touch `~/.gstack/` indexing (the existing `gstack-gbrain-source-wireup`
 owns that — never double-store).
 
+**Scope boundary:** `/sync-gbrain` is for this repo's code and gstack memory
+sources. If the user is syncing a non-code knowledge base such as an Obsidian
+vault, wiki export, or generated markdown mirror, use that repo's own mirror
+builder/materializer or native `gbrain extract all`. Preserve GBrain's native
+slug grammar, `source_id` grammar, timeline sentinel/entry grammar, and typed
+link/timeline rows so MCP tools can traverse the result like a native brain.
+Do not run the code-source orchestrator over a host vault.
+
 ## User-invocable
 
 When the user types `/sync-gbrain`, run this skill. Argument modes (parsed by
